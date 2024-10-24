@@ -109,33 +109,33 @@ def setup_business_profile():
         if submitted:
             if not all([business_name, reg_number, tax_number, email, phone, address]):
                 st.error("Please fill in all required fields marked with *")
-                return None
+                return None, None
             
-            # Create business profile data
+            # Create business profile data - with proper data types for Firestore
             business_data = {
                 "basic_info": {
-                    "business_name": business_name,
-                    "trading_name": trading_name,
-                    "business_type": business_type,
-                    "industry": other_industry if industry == "Other" else industry
+                    "business_name": str(business_name),
+                    "trading_name": str(trading_name),
+                    "business_type": str(business_type),
+                    "industry": str(other_industry if industry == "Other" else industry)
                 },
                 "registration": {
-                    "reg_number": reg_number,
-                    "tax_number": tax_number,
-                    "vat_number": vat_number,
+                    "reg_number": str(reg_number),
+                    "tax_number": str(tax_number),
+                    "vat_number": str(vat_number),
                     "incorporation_date": incorporation_date.strftime('%Y-%m-%d')
                 },
                 "contact": {
-                    "email": email,
-                    "phone": phone,
-                    "website": website,
-                    "physical_address": address,
-                    "postal_address": postal_address
+                    "email": str(email),
+                    "phone": str(phone),
+                    "website": str(website),
+                    "physical_address": str(address),
+                    "postal_address": str(postal_address)
                 },
                 "branding": {
-                    "primary_color": primary_color
+                    "primary_color": str(primary_color)
                 },
-                "updated_at": datetime.now()
+                "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Convert datetime to string
             }
             
             return business_data, logo_file
@@ -222,16 +222,24 @@ def main():
     elif page == "Profile Setup":
         business_data, logo_file = setup_business_profile()
         if business_data:
-            # Upload logo if provided
-            if logo_file:
-                logo_url = upload_business_logo(business_id, logo_file)
-                business_data['branding']['logo_url'] = logo_url
-            
-            # Save to Firebase
-            business_ref.set(business_data, merge=True)
-            st.success("Business profile updated successfully!")
-            st.session_state.page = "Dashboard"
-            st.rerun()
+            try:
+                # Upload logo if provided
+                if logo_file:
+                    logo_url = upload_business_logo(business_id, logo_file)
+                    if logo_url:
+                        business_data['branding']['logo_url'] = str(logo_url)
+                
+                # Save to Firebase
+                business_ref.set(business_data, merge=True)
+                st.success("Business profile updated successfully!")
+                # Use time.sleep to ensure the success message is visible
+                import time
+                time.sleep(1)
+                # Reset the page to Dashboard
+                st.session_state.page = "Dashboard"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error saving profile: {str(e)}")
 
 
 def calculate_business_tax(taxable_income):
