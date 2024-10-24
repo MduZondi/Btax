@@ -85,6 +85,7 @@ def setup_business_profile():
             "Other"
         ])
         
+        other_industry = ""
         if industry == "Other":
             other_industry = st.text_input("Specify Industry")
         
@@ -105,46 +106,42 @@ def setup_business_profile():
         logo_file = st.file_uploader("Upload Business Logo", type=["png", "jpg", "jpeg"])
         primary_color = st.color_picker("Primary Brand Color", "#000000")
         
-        submitted = st.form_submit_button("Save Business Profile")
-        if submitted:
+        if st.form_submit_button("Save Business Profile"):
             if not all([business_name, reg_number, tax_number, email, phone, address]):
                 st.error("Please fill in all required fields marked with *")
-                return None, None
+                return None
             
-            # Create business profile data - with proper data types for Firestore
-            business_data = {
+            # Create business profile data
+            return {
                 "basic_info": {
-                    "business_name": str(business_name),
-                    "trading_name": str(trading_name),
-                    "business_type": str(business_type),
-                    "industry": str(other_industry if industry == "Other" else industry)
+                    "business_name": business_name,
+                    "trading_name": trading_name if trading_name else "",
+                    "business_type": business_type,
+                    "industry": other_industry if industry == "Other" else industry
                 },
                 "registration": {
-                    "reg_number": str(reg_number),
-                    "tax_number": str(tax_number),
-                    "vat_number": str(vat_number),
+                    "reg_number": reg_number,
+                    "tax_number": tax_number,
+                    "vat_number": vat_number if vat_number else "",
                     "incorporation_date": incorporation_date.strftime('%Y-%m-%d')
                 },
                 "contact": {
-                    "email": str(email),
-                    "phone": str(phone),
-                    "website": str(website),
-                    "physical_address": str(address),
-                    "postal_address": str(postal_address)
+                    "email": email,
+                    "phone": phone,
+                    "website": website if website else "",
+                    "physical_address": address,
+                    "postal_address": postal_address if postal_address else ""
                 },
                 "branding": {
-                    "primary_color": str(primary_color)
+                    "primary_color": primary_color,
+                    "logo_file": logo_file.name if logo_file else ""
                 },
-                "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Convert datetime to string
+                "timestamp": firestore.SERVER_TIMESTAMP
             }
-            
-            return business_data, logo_file
     
-    return None, None
+    return None
 
 def main():
-    st.title("Business Tax Management System")
-    
     # Initialize Firebase
     db = init_firebase_admin()
     
@@ -176,11 +173,11 @@ def main():
                 except Exception as e:
                     st.error(f"Sign up failed: {str(e)}")
         return
-    
+
     # Main app navigation
     business_id = st.session_state.user['localId']
     business_ref = db.collection('businesses').document(business_id)
-    
+
     # Sidebar navigation
     page = st.sidebar.radio("Navigate to", [
         "Dashboard",
@@ -190,53 +187,42 @@ def main():
         "Tax Calculator",
         "Reports"
     ])
-    
+
     if st.sidebar.button("Logout"):
         del st.session_state['user']
         st.rerun()
-    
+
     # Page handling
     if page == "Dashboard":
         st.header("Business Dashboard")
         
         # Load business profile
-        business_data = business_ref.get().to_dict() or {}
+        business_data = business_ref.get().to_dict()
         
-        # Check if business profile is complete
-        if not business_data.get('basic_info'):
+        if not business_data or 'basic_info' not in business_data:
             st.warning("Please complete your business profile setup")
             if st.button("Setup Business Profile"):
-                st.session_state.page = "Profile Setup"
+                st.session_state['page'] = "Profile Setup"
                 st.rerun()
         else:
-            # Display business header with branding
+            # Display business information
             col1, col2 = st.columns([1, 3])
             with col1:
-                if business_data.get('branding', {}).get('logo_url'):
-                    st.image(business_data['branding']['logo_url'], width=150)
+                if 'branding' in business_data and 'logo_url' in business_data['branding']:
+                    st.image(business_data['branding']['logo_url'])
             with col2:
                 st.title(business_data['basic_info']['business_name'])
                 st.write(f"Type: {business_data['basic_info']['business_type']}")
                 st.write(f"Industry: {business_data['basic_info']['industry']}")
-    
+
     elif page == "Profile Setup":
-        business_data, logo_file = setup_business_profile()
-        if business_data:
+        profile_data = setup_business_profile()
+        if profile_data:
             try:
-                # Upload logo if provided
-                if logo_file:
-                    logo_url = upload_business_logo(business_id, logo_file)
-                    if logo_url:
-                        business_data['branding']['logo_url'] = str(logo_url)
-                
                 # Save to Firebase
-                business_ref.set(business_data, merge=True)
-                st.success("Business profile updated successfully!")
-                # Use time.sleep to ensure the success message is visible
-                import time
+                business_ref.set(profile_data, merge=True)
+                st.success("Profile updated successfully!")
                 time.sleep(1)
-                # Reset the page to Dashboard
-                st.session_state.page = "Dashboard"
                 st.rerun()
             except Exception as e:
                 st.error(f"Error saving profile: {str(e)}")
