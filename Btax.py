@@ -27,8 +27,6 @@ def init_firebase_admin():
             st.error(f"Error initializing Firebase: {str(e)}")
     return firestore.client()
 
-# Add these new functions after the init_firebase_admin() function
-
 def upload_business_logo(business_id, logo_file):
     """Upload business logo to Firebase Storage"""
     if logo_file:
@@ -102,34 +100,16 @@ def setup_business_profile():
             address = st.text_area("Physical Address*")
             postal_address = st.text_area("Postal Address")
         
-        # Financial Year
-        st.subheader("Financial Year")
-        fy_end_month = st.selectbox("Financial Year End Month*", [
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ])
-        fy_end_day = st.selectbox("Financial Year End Day*", list(range(1, 32)))
-        
         # Branding
         st.subheader("Business Branding")
         logo_file = st.file_uploader("Upload Business Logo", type=["png", "jpg", "jpeg"])
         primary_color = st.color_picker("Primary Brand Color", "#000000")
-        
-        # Additional Information
-        st.subheader("Additional Information")
-        employee_count = st.number_input("Number of Employees", min_value=0)
-        business_description = st.text_area("Business Description")
         
         submitted = st.form_submit_button("Save Business Profile")
         if submitted:
             if not all([business_name, reg_number, tax_number, email, phone, address]):
                 st.error("Please fill in all required fields marked with *")
                 return None
-                
-            # Upload logo if provided
-            logo_url = None
-            if logo_file:
-                logo_url = upload_business_logo(st.session_state.user['localId'], logo_file)
             
             # Create business profile data
             business_data = {
@@ -152,59 +132,106 @@ def setup_business_profile():
                     "physical_address": address,
                     "postal_address": postal_address
                 },
-                "financial": {
-                    "fy_end_month": fy_end_month,
-                    "fy_end_day": fy_end_day
-                },
                 "branding": {
-                    "logo_url": logo_url,
                     "primary_color": primary_color
-                },
-                "additional": {
-                    "employee_count": employee_count,
-                    "business_description": business_description
                 },
                 "updated_at": datetime.now()
             }
             
-            return business_data
+            return business_data, logo_file
     
-    return None
+    return None, None
 
-# Modify the main dashboard section to include business profile
-if page == "Dashboard":
-    st.header("Business Dashboard")
+def main():
+    st.title("Business Tax Management System")
     
-    # Load business profile
-    business_data = business_ref.get().to_dict() or {}
+    # Initialize Firebase
+    db = init_firebase_admin()
     
-    # Check if business profile is complete
-    if not business_data.get('basic_info'):
-        st.warning("Please complete your business profile setup")
-        if st.button("Setup Business Profile"):
-            st.session_state.page = "Profile Setup"
-            st.rerun()
-    else:
-        # Display business header with branding
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            if business_data.get('branding', {}).get('logo_url'):
-                st.image(business_data['branding']['logo_url'], width=150)
-        with col2:
-            st.title(business_data['basic_info']['business_name'])
-            st.write(f"Type: {business_data['basic_info']['business_type']}")
-            st.write(f"Industry: {business_data['basic_info']['industry']}")
+    # Authentication
+    if 'user' not in st.session_state:
+        tab1, tab2 = st.tabs(["Login", "Sign Up"])
+        
+        with tab1:
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_password")
+            
+            if st.button("Login"):
+                try:
+                    user = auth.get_user_by_email(email)
+                    st.session_state['user'] = {'localId': user.uid, 'email': email}
+                    st.success("Logged in successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error("Login failed")
+        
+        with tab2:
+            email = st.text_input("Email", key="signup_email")
+            password = st.text_input("Password", type="password", key="signup_password")
+            
+            if st.button("Sign Up"):
+                try:
+                    user = auth.create_user(email=email, password=password)
+                    st.success("Account created! Please login.")
+                except Exception as e:
+                    st.error(f"Sign up failed: {str(e)}")
+        return
     
-    # Rest of the dashboard code...
-
-# Add a new page for profile management
-elif page == "Profile Setup":
-    updated_profile = setup_business_profile()
-    if updated_profile:
-        business_ref.set(updated_profile, merge=True)
-        st.success("Business profile updated successfully!")
-        st.session_state.page = "Dashboard"
+    # Main app navigation
+    business_id = st.session_state.user['localId']
+    business_ref = db.collection('businesses').document(business_id)
+    
+    # Sidebar navigation
+    page = st.sidebar.radio("Navigate to", [
+        "Dashboard",
+        "Profile Setup",
+        "Income & Revenue",
+        "Expenses & Deductions",
+        "Tax Calculator",
+        "Reports"
+    ])
+    
+    if st.sidebar.button("Logout"):
+        del st.session_state['user']
         st.rerun()
+    
+    # Page handling
+    if page == "Dashboard":
+        st.header("Business Dashboard")
+        
+        # Load business profile
+        business_data = business_ref.get().to_dict() or {}
+        
+        # Check if business profile is complete
+        if not business_data.get('basic_info'):
+            st.warning("Please complete your business profile setup")
+            if st.button("Setup Business Profile"):
+                st.session_state.page = "Profile Setup"
+                st.rerun()
+        else:
+            # Display business header with branding
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if business_data.get('branding', {}).get('logo_url'):
+                    st.image(business_data['branding']['logo_url'], width=150)
+            with col2:
+                st.title(business_data['basic_info']['business_name'])
+                st.write(f"Type: {business_data['basic_info']['business_type']}")
+                st.write(f"Industry: {business_data['basic_info']['industry']}")
+    
+    elif page == "Profile Setup":
+        business_data, logo_file = setup_business_profile()
+        if business_data:
+            # Upload logo if provided
+            if logo_file:
+                logo_url = upload_business_logo(business_id, logo_file)
+                business_data['branding']['logo_url'] = logo_url
+            
+            # Save to Firebase
+            business_ref.set(business_data, merge=True)
+            st.success("Business profile updated successfully!")
+            st.session_state.page = "Dashboard"
+            st.rerun()
 
 
 def calculate_business_tax(taxable_income):
