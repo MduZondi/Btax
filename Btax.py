@@ -27,6 +27,186 @@ def init_firebase_admin():
             st.error(f"Error initializing Firebase: {str(e)}")
     return firestore.client()
 
+# Add these new functions after the init_firebase_admin() function
+
+def upload_business_logo(business_id, logo_file):
+    """Upload business logo to Firebase Storage"""
+    if logo_file:
+        try:
+            bucket = storage.bucket()
+            file_extension = os.path.splitext(logo_file.name)[1]
+            blob_name = f"business_logos/{business_id}/logo{file_extension}"
+            blob = bucket.blob(blob_name)
+            
+            # Upload file
+            blob.upload_from_string(
+                logo_file.getvalue(),
+                content_type=logo_file.type
+            )
+            
+            blob.make_public()
+            return blob.public_url
+        except Exception as e:
+            st.error(f"Error uploading logo: {str(e)}")
+            return None
+    return None
+
+def setup_business_profile():
+    """Complete business profile setup form"""
+    st.header("Business Profile Setup")
+    
+    with st.form("business_profile_form"):
+        # Basic Information
+        st.subheader("Basic Information")
+        business_name = st.text_input("Business Name*")
+        trading_name = st.text_input("Trading Name (if different)")
+        business_type = st.selectbox("Business Type*", [
+            "Small Business Corporation",
+            "Medium to Large Corporation",
+            "Sole Proprietorship",
+            "Partnership"
+        ])
+        
+        # Registration Details
+        st.subheader("Registration Details")
+        reg_number = st.text_input("Registration Number*")
+        tax_number = st.text_input("Tax Number*")
+        vat_number = st.text_input("VAT Number (if registered)")
+        incorporation_date = st.date_input("Incorporation Date*")
+        
+        # Business Category
+        industry = st.selectbox("Industry*", [
+            "Agriculture",
+            "Manufacturing",
+            "Construction",
+            "Retail",
+            "Services",
+            "Technology",
+            "Healthcare",
+            "Education",
+            "Other"
+        ])
+        
+        if industry == "Other":
+            other_industry = st.text_input("Specify Industry")
+        
+        # Contact Information
+        st.subheader("Contact Information")
+        col1, col2 = st.columns(2)
+        with col1:
+            email = st.text_input("Business Email*")
+            phone = st.text_input("Business Phone*")
+            website = st.text_input("Website")
+        
+        with col2:
+            address = st.text_area("Physical Address*")
+            postal_address = st.text_area("Postal Address")
+        
+        # Financial Year
+        st.subheader("Financial Year")
+        fy_end_month = st.selectbox("Financial Year End Month*", [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ])
+        fy_end_day = st.selectbox("Financial Year End Day*", list(range(1, 32)))
+        
+        # Branding
+        st.subheader("Business Branding")
+        logo_file = st.file_uploader("Upload Business Logo", type=["png", "jpg", "jpeg"])
+        primary_color = st.color_picker("Primary Brand Color", "#000000")
+        
+        # Additional Information
+        st.subheader("Additional Information")
+        employee_count = st.number_input("Number of Employees", min_value=0)
+        business_description = st.text_area("Business Description")
+        
+        submitted = st.form_submit_button("Save Business Profile")
+        if submitted:
+            if not all([business_name, reg_number, tax_number, email, phone, address]):
+                st.error("Please fill in all required fields marked with *")
+                return None
+                
+            # Upload logo if provided
+            logo_url = None
+            if logo_file:
+                logo_url = upload_business_logo(st.session_state.user['localId'], logo_file)
+            
+            # Create business profile data
+            business_data = {
+                "basic_info": {
+                    "business_name": business_name,
+                    "trading_name": trading_name,
+                    "business_type": business_type,
+                    "industry": other_industry if industry == "Other" else industry
+                },
+                "registration": {
+                    "reg_number": reg_number,
+                    "tax_number": tax_number,
+                    "vat_number": vat_number,
+                    "incorporation_date": incorporation_date.strftime('%Y-%m-%d')
+                },
+                "contact": {
+                    "email": email,
+                    "phone": phone,
+                    "website": website,
+                    "physical_address": address,
+                    "postal_address": postal_address
+                },
+                "financial": {
+                    "fy_end_month": fy_end_month,
+                    "fy_end_day": fy_end_day
+                },
+                "branding": {
+                    "logo_url": logo_url,
+                    "primary_color": primary_color
+                },
+                "additional": {
+                    "employee_count": employee_count,
+                    "business_description": business_description
+                },
+                "updated_at": datetime.now()
+            }
+            
+            return business_data
+    
+    return None
+
+# Modify the main dashboard section to include business profile
+if page == "Dashboard":
+    st.header("Business Dashboard")
+    
+    # Load business profile
+    business_data = business_ref.get().to_dict() or {}
+    
+    # Check if business profile is complete
+    if not business_data.get('basic_info'):
+        st.warning("Please complete your business profile setup")
+        if st.button("Setup Business Profile"):
+            st.session_state.page = "Profile Setup"
+            st.rerun()
+    else:
+        # Display business header with branding
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if business_data.get('branding', {}).get('logo_url'):
+                st.image(business_data['branding']['logo_url'], width=150)
+        with col2:
+            st.title(business_data['basic_info']['business_name'])
+            st.write(f"Type: {business_data['basic_info']['business_type']}")
+            st.write(f"Industry: {business_data['basic_info']['industry']}")
+    
+    # Rest of the dashboard code...
+
+# Add a new page for profile management
+elif page == "Profile Setup":
+    updated_profile = setup_business_profile()
+    if updated_profile:
+        business_ref.set(updated_profile, merge=True)
+        st.success("Business profile updated successfully!")
+        st.session_state.page = "Dashboard"
+        st.rerun()
+
+
 def calculate_business_tax(taxable_income):
     """Calculate business tax based on current SARS rates"""
     # Current company tax rate is 27% (as of 2024)
@@ -124,6 +304,7 @@ def main():
                     st.error("Login failed")
         
         with tab2:
+            # REPLACE THE EXISTING SIGN UP CODE WITH THIS:
             email = st.text_input("Email", key="signup_email")
             password = st.text_input("Password", type="password", key="signup_password")
             business_name = st.text_input("Business Name")
@@ -137,10 +318,12 @@ def main():
             if st.button("Sign Up"):
                 try:
                     user = auth.create_user(email=email, password=password)
-                    # Create business profile
+                    # Create initial business profile
                     db.collection('businesses').document(user.uid).set({
-                        'business_name': business_name,
-                        'business_type': business_type,
+                        'basic_info': {
+                            'business_name': business_name,
+                            'business_type': business_type,
+                        },
                         'created_at': datetime.now()
                     })
                     st.success("Account created! Please login.")
@@ -162,6 +345,7 @@ def main():
     # Navigation
     page = st.sidebar.radio("Navigate to", [
         "Dashboard",
+        "Profile Setup",  
         "Income & Revenue",
         "Expenses & Deductions",
         "Asset Management",
@@ -172,25 +356,25 @@ def main():
     if page == "Dashboard":
         st.header("Business Dashboard")
         
-        # Display business info
-        st.subheader(f"Business: {business_data.get('business_name', 'Not Set')}")
-        st.write(f"Type: {business_data.get('business_type', 'Not Set')}")
+        # Load business profile
+        business_data = business_ref.get().to_dict() or {}
         
-        # Load financial data
-        expenses = list(business_ref.collection('expenses').stream())
-        expenses_data = [doc.to_dict() for doc in expenses]
-        
-        if expenses_data:
-            df = pd.DataFrame(expenses_data)
-            
-            # Key metrics
-            col1, col2, col3 = st.columns(3)
+        # Check if business profile is complete
+        if not business_data.get('basic_info'):
+            st.warning("Please complete your business profile setup")
+            if st.button("Setup Business Profile"):
+                st.session_state.page = "Profile Setup"
+                st.rerun()
+        else:
+            # Display business header with branding
+            col1, col2 = st.columns([1, 3])
             with col1:
-                total_expenses = df['amount'].sum()
-                st.metric("Total Expenses", f"R {total_expenses:,.2f}")
+                if business_data.get('branding', {}).get('logo_url'):
+                    st.image(business_data['branding']['logo_url'], width=150)
             with col2:
-                monthly_average = df.groupby(pd.to_datetime(df['date']).dt.to_period('M'))['amount'].mean()
-                st.metric("Monthly Average", f"R {monthly_average.mean():,.2f}")
+                st.title(business_data['basic_info']['business_name'])
+                st.write(f"Type: {business_data['basic_info']['business_type']}")
+                st.write(f"Industry: {business_data['basic_info']['industry']}")
             with col3:
                 potential_savings = df['amount'].sum() * 0.27  # Approximate tax savings
                 st.metric("Potential Tax Savings", f"R {potential_savings:,.2f}")
@@ -210,6 +394,14 @@ def main():
                 title="Expenses by Category"
             )
             st.plotly_chart(fig2)
+
+    elif page == "Profile Setup":
+        updated_profile = setup_business_profile()
+        if updated_profile:
+            business_ref.set(updated_profile, merge=True)
+            st.success("Business profile updated successfully!")
+            st.session_state.page = "Dashboard"
+            st.rerun()
 
     elif page == "Income & Revenue":
         st.header("Income & Revenue Management")
